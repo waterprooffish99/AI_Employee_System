@@ -1,0 +1,110 @@
+# .syncthingignore for AI Employee Vault
+# CRITICAL: This file prevents secrets from being synced via Syncthing
+
+# =============================================
+# ENVIRONMENT FILES (CONTAIN SECRETS)
+# =============================================
+.env
+.env.*
+.env.local
+.env.*.local
+.env.cloud
+.env.local
+
+# =============================================
+# TOKEN FILES
+# =============================================
+*.token
+*.tokens
+*.access_token
+*.refresh_token
+*.id_token
+*.session_token
+
+# =============================================
+# KEY FILES
+# =============================================
+*.key
+*.pem
+*.crt
+*.p12
+*.pfx
+*.der
+*.asc
+
+# =============================================
+# CREDENTIAL DIRECTORIES
+# =============================================
+sessions/
+credentials/
+oauth/
+auth/
+.auth/
+.secrets/
+
+# =============================================
+# SECRET FILES
+# =============================================
+*.secret
+*.secrets
+*.password
+*.passwd
+*.credential
+*.credentials
+
+# =============================================
+# AUDIT LOGS (CONTAIN SENSITIVE DATA)
+# =============================================
+Audit_Logs/
+Logs/audit*
+Logs/*sensitive*
+
+# =============================================
+# CEO BRIEFINGS (BUSINESS SENSITIVE)
+# =============================================
+CEO_Briefings/
+
+# =============================================
+# IDE AND EDITOR FILES
+# =============================================
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# =============================================
+# OS FILES
+# =============================================
+.DS_Store
+Thumbs.db
+
+# =============================================
+# PYTHON GENERATED
+# =============================================
+__pycache__/
+*.py[cod]
+*.egg-info/
+
+# =============================================
+# VIRTUAL ENVIRONMENTS
+# =============================================
+.venv/
+venv/
+
+# =============================================
+# NOTES
+# =============================================
+# The following folders ARE synced (markdown/state only):
+# - Needs_Action/
+# - In_Progress/
+# - Pending_Approval/
+# - Approved/
+# - Rejected/
+# - Done/
+# - Plans/
+# - Updates/ (drafts only, no secrets)
+# - Signals/
+# - Dashboard.md
+# - Company_Handbook.md
+# - Business_Goals.md

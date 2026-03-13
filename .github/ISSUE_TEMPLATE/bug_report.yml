@@ -1,0 +1,101 @@
+---
+name: 🐛 Bug Report
+description: Create a report to help us improve
+title: '[Bug]: '
+labels: ['bug', 'triage']
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for taking the time to fill out this bug report!
+
+  - type: textarea
+    id: description
+    attributes:
+      label: Describe the bug
+      description: A clear and concise description of what the bug is.
+      placeholder: Tell us what you see!
+    validations:
+      required: true
+
+  - type: textarea
+    id: reproduction
+    attributes:
+      label: To Reproduce
+      description: Steps to reproduce the behavior
+      placeholder: |
+        1. Go to '...'
+        2. Click on '....'
+        3. Scroll down to '....'
+        4. See error
+    validations:
+      required: true
+
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected behavior
+      description: A clear and concise description of what you expected to happen.
+    validations:
+      required: true
+
+  - type: textarea
+    id: screenshots
+    attributes:
+      label: Screenshots
+      description: If applicable, add screenshots to help explain your problem.
+    validations:
+      required: false
+
+  - type: dropdown
+    id: tier
+    attributes:
+      label: Affected Tier
+      description: Which tier(s) does this bug affect?
+      multiple: true
+      options:
+        - Bronze 🥉
+        - Silver 🥈
+        - Gold 🥇
+        - Platinum 💎
+    validations:
+      required: true
+
+  - type: dropdown
+    id: component
+    attributes:
+      label: Component
+      description: Which component is affected?
+      multiple: true
+      options:
+        - Watchers (Perception)
+        - MCP Servers (Action)
+        - Orchestrator
+        - Agent Skills
+        - Ralph Wiggum Loop
+        - Audit Logging
+        - Error Recovery
+        - Vault/Dashboard
+        - Other
+    validations:
+      required: true
+
+  - type: textarea
+    id: environment
+    attributes:
+      label: Environment
+      description: Please provide your environment details
+      value: |
+        - OS: [e.g. Windows 11, macOS Sonoma, Ubuntu 24.04]
+        - Python version: [e.g. 3.13]
+        - Claude Code version: [e.g. latest]
+    validations:
+      required: true
+
+  - type: textarea
+    id: context
+    attributes:
+      label: Additional context
+      description: Add any other context about the problem here.
+    validations:
+      required: false

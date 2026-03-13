@@ -1,0 +1,105 @@
+# Python
+__pycache__/
+*.py[oc]
+build/
+dist/
+wheels/
+*.egg-info/
+*.pyc
+
+# Virtual environments
+.venv/
+venv/
+env/
+ENV/
+
+# Environment variables (SECURITY: Never commit secrets)
+.env
+.env.local
+.env.*.local
+*.env
+
+# Logs (runtime data)
+*.log
+Logs/
+logs/
+
+# Audit logs (contain sensitive operational data)
+AI_Employee_Vault/Audit_Logs/
+AI_Employee_Vault/CEO_Briefings/
+AI_Employee_Vault/Error_Recovery/
+
+# Odoo local data
+.odoo/
+odoo/
+odoo-db/
+
+# Social media credentials and keys
+*.pem
+*.key
+*.crt
+credentials.json
+service_account.json
+
+# Obsidian configuration (local editor settings)
+.obsidian/
+
+# Python version file (pyenv)
+.python-version
+
+# IDE and editor files
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+*.rdb
+*.sublime-*
+
+# OS files
+.DS_Store
+Thumbs.db
+*.tmp
+*.bak
+
+# Coverage and testing
+htmlcov/
+.coverage
+.pytest_cache/
+.coverage.*
+.tox/
+coverage.xml
+
+# Node (if needed for MCP servers)
+node_modules/
+npm-debug.log
+yarn-error.log
+package-lock.json
+
+# Docker
+*.pid
+*.seed
+*.pid.lock
+
+# Temporary files
+tmp/
+temp/
+.cache/
+
+# State files (Ralph Wiggum loop)
+AI_Employee_Vault/Plans/*_state.json
+AI_Employee_Vault/Plans/*_last_output.txt
+
+# Session files
+*.session
+*.session.json
+
+# Database files (SQLite)
+*.db
+*.sqlite
+*.sqlite3
+
+# Backup files
+*.backup
+*.bak
+*.old
