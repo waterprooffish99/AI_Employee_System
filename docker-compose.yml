@@ -1,41 +1,240 @@
-version: '3.8'
+# AI Employee System - Docker Compose
+# Platinum Tier Deployment
+#
+# CRITICAL: Odoo Permission & Password Fix
+# - Odoo container runs as UID 101
+# - PostgreSQL container runs as UID 999
+# - Custom odoo.conf sets explicit session_dir to avoid ~/.local error
+# - HOME environment variable forced to writable directory
+# - Password consistency: ODOO_DB_PASSWORD == POSTGRES_PASSWORD
+#
+# BEFORE FIRST RUN:
+#   sudo bash scripts/setup_odoo_permissions.sh
+#
+# For password issues, use complete reset:
+#   sudo bash scripts/reset_odoo_db.sh
+#
+# This creates directories and sets correct ownership:
+#   - ./odoo-filestore (Odoo data)
+#   - ./odoo/sessions (Odoo sessions - UID 101)
+#   - ./postgres-data (PostgreSQL data - UID 999)
 
 services:
+  # =============================================
+  # POSTGRESQL DATABASE
+  # =============================================
+  db:
+    image: postgres:15
+    container_name: odoo-db
+    restart: unless-stopped
+    
+    # Run as PostgreSQL's internal user (UID 999)
+    user: "999:999"
+    
+    environment:
+      # Database name (default: postgres for initial connection)
+      - POSTGRES_DB=${POSTGRES_DB:-odoo_db}
+      # PostgreSQL username (don't change after initialization)
+      - POSTGRES_USER=${POSTGRES_USER:-odoo}
+      # CRITICAL: This password MUST match ODOO_DB_PASSWORD in .env
+      # Used by Odoo to authenticate with PostgreSQL
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD:-odoo123}
+      # PostgreSQL data directory (use default to avoid permission issues)
+      - LOG_LEVEL=debug
+    
+    volumes:
+      # Named volume for PostgreSQL data (use default path)
+      - postgres-data:/var/lib/postgresql/data
+    
+    networks:
+      - odoo-network
+    
+    healthcheck:
+      # Check if PostgreSQL is ready to accept connections
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-odoo} -d ${POSTGRES_DB:-postgres}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+
+  # =============================================
+  # ODOO ERP (Gold Tier - Accounting)
+  # =============================================
   odoo:
     image: odoo:19.0
     container_name: odoo
     restart: unless-stopped
     ports:
       - "8069:8069"
+    
+    # CRITICAL: Wait for PostgreSQL to be healthy before starting
     depends_on:
-      - db
+      db:
+        condition: service_healthy
+    
+    # Run as Odoo's internal user (UID 101)
+    user: "101:101"
+    
     environment:
+      # Database connection
+      # CRITICAL: PASSWORD must match POSTGRES_PASSWORD in db service
       - HOST=db
-      - DATABASE=odoo_db
+      - DATABASE=postgres
       - USER=odoo
-      - PASSWORD=${ODOO_ADMIN_PASSWORD:-ChangeMe123!}
+      - PASSWORD=odoo123
+
+      # CRITICAL: Force HOME to writable mounted directory
+      # This prevents Odoo from trying to create ~/.local in root (/) directory
+      - HOME=/var/lib/odoo
+
+      # Explicit config file path
+      - ODOO_RC=/etc/odoo/odoo.conf
+
+      # Enhanced logging for debugging
+      - LOG_LEVEL=debug
+
+      # Master password for database operations
+      - ADMIN_PASSWD=admin
+
+      # Fix locale warnings (common in Docker/WSL2)
+      - LANG=en_US.UTF-8
+      - LC_ALL=en_US.UTF-8
+    
     volumes:
-      - ./odoo/data:/var/lib/odoo
+      # Main Odoo data directory (filestore, sessions, logs)
+      # MUST be owned by UID 101 (Odoo user)
+      - ./odoo-filestore:/var/lib/odoo
+      
+      # CRITICAL: Explicit sessions sub-mount for extra safety
+      # This ensures /var/lib/odoo/sessions is definitely writable
+      - ./odoo/sessions:/var/lib/odoo/sessions
+      
+      # Custom addons
       - ./odoo/addons:/mnt/extra-addons
+      
+      # Configuration file (fixes session_dir and HOME issues)
+      - ./odoo.conf:/etc/odoo/odoo.conf:ro
+      
+      # Log file mount for debugging (ensure logs are accessible)
+      - ./odoo/logs:/var/log/odoo
+    
     networks:
       - odoo-network
+    
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8069"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 120s  # Extended for first startup
+    
+    # Initialize database on first run
+    # Uses 'odoo' command which checks if database needs initialization
+    # If base module not installed, it auto-initializes
+    command: >
+      bash -c "
+        echo 'Waiting for PostgreSQL to be ready...' &&
+        until pg_isready -h db -U odoo; do
+          sleep 2
+        done &&
+        echo 'PostgreSQL is ready, starting Odoo...' &&
+        exec odoo --database=postgres --db_user=odoo --db_password=odoo123 --db_host=db --log-level=info
+      "
 
-  db:
-    image: postgres:15
-    container_name: odoo-db
+  # =============================================
+  # AI Employee Orchestrator (Local Mode)
+  # =============================================
+  ai-employee-local:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: ai-employee-local
     restart: unless-stopped
+    depends_on:
+      - odoo
     environment:
-      - POSTGRES_DB=odoo_db
-      - POSTGRES_USER=odoo
-      - POSTGRES_PASSWORD=${ODOO_ADMIN_PASSWORD:-ChangeMe123!}
+      - CLOUD_MODE=false
+      - DRY_RUN=${DRY_RUN:-true}
+      - VAULT_PATH=/app/AI_Employee_Vault
+      - ODOO_URL=http://odoo:8069
+      - ODOO_DB=${POSTGRES_DB:-odoo_db}
+      - ODOO_USER=${POSTGRES_USER:-odoo}
+      - ODOO_PASSWORD=${POSTGRES_PASSWORD:-odoo123}
     volumes:
-      - db-data:/var/lib/postgresql/data
+      - ./AI_Employee_Vault:/app/AI_Employee_Vault
+      - ./.env:/app/.env:ro
     networks:
       - odoo-network
+    command: ["python", "main.py"]
 
-volumes:
-  db-data:
+  # =============================================
+  # Gmail Watcher
+  # =============================================
+  gmail-watcher:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: gmail-watcher
+    restart: unless-stopped
+    depends_on:
+      - ai-employee-local
+    environment:
+      - VAULT_PATH=/app/AI_Employee_Vault
+      - GMAIL_CREDENTIALS=/app/gmail_credentials.json
+    volumes:
+      - ./AI_Employee_Vault:/app/AI_Employee_Vault
+      - ./gmail_credentials.json:/app/gmail_credentials.json:ro
+    networks:
+      - odoo-network
+    command: ["python", "-m", "src.watchers.gmail_watcher"]
+
+  # =============================================
+  # Filesystem Watcher
+  # =============================================
+  filesystem-watcher:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: filesystem-watcher
+    restart: unless-stopped
+    depends_on:
+      - ai-employee-local
+    environment:
+      - VAULT_PATH=/app/AI_Employee_Vault
+      - DROP_PATH=/app/AI_Employee_Vault/Drop
+    volumes:
+      - ./AI_Employee_Vault:/app/AI_Employee_Vault
+    networks:
+      - odoo-network
+    command: ["python", "-m", "src.watchers.filesystem_watcher"]
+
+  # =============================================
+  # Health Check Endpoint (Platinum Tier)
+  # =============================================
+  health-check:
+    image: nginx:alpine
+    container_name: health-check
+    restart: unless-stopped
+    ports:
+      - "8080:80"
+    volumes:
+      - ./nginx-health.conf:/etc/nginx/nginx.conf:ro
+    networks:
+      - odoo-network
+    healthcheck:
+      test: ["CMD", "wget", "-q", "--spider", "http://localhost/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
 
 networks:
   odoo-network:
     driver: bridge
+
+volumes:
+  # Named volume for PostgreSQL data (avoids WSL2 permission issues)
+  postgres-data:
+    driver: local
+  # Named volume for Odoo filestore
+  odoo-filestore:
+    driver: local

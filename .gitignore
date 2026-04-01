@@ -41,6 +41,10 @@ odoo-db/
 credentials.json
 service_account.json
 
+# Gmail API credentials
+gmail_credentials.json
+gmail_token.json
+
 # Obsidian configuration (local editor settings)
 .obsidian/
 

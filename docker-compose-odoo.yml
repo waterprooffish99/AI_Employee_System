@@ -1,0 +1,41 @@
+version: '3.9'
+
+services:
+  db:
+    image: postgres:15
+    container_name: odoo-db
+    environment:
+      - POSTGRES_DB=odoo_db
+      - POSTGRES_USER=odoo
+      - POSTGRES_PASSWORD=odoo
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    networks:
+      - odoo-network
+
+  odoo:
+    image: odoo:19.0
+    container_name: odoo
+    command: odoo -i base --without-demo=all
+    depends_on:
+      - db
+    ports:
+      - "8069:8069"
+    environment:
+      - HOST=db
+      - USER=odoo
+      - PASSWORD=odoo
+    volumes:
+      - ./odoo.conf:/etc/odoo/odoo.conf:ro
+      - odoo-filestore:/var/lib/odoo
+    networks:
+      - odoo-network
+    restart: unless-stopped
+
+volumes:
+  postgres-data:
+  odoo-filestore:
+
+networks:
+  odoo-network:
+    driver: bridge

@@ -422,21 +422,31 @@ period_end: {data['period_end']}
     ) -> Path:
         """
         Generate briefing for the last N days and save.
-        
+
         Args:
             days: Number of days to include
-            
+
         Returns:
             Path to generated report
         """
         period_end = datetime.now()
         period_start = period_end - timedelta(days=days)
-        
+
         result = self.generate_briefing(period_start, period_end)
-        
+
         if result.get("success"):
             return Path(result["report_path"])
         raise Exception(result.get("error", "Unknown error"))
+    
+    def generate_scheduled_briefing(self) -> Path:
+        """
+        Generate scheduled weekly briefing (for cron job).
+        
+        Returns:
+            Path to generated report
+        """
+        # Generate for last 7 days
+        return self.generate_and_save(days=7)
 
 
 # Singleton instance

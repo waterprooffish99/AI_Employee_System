@@ -3,10 +3,10 @@
 > **Your life and business on autopilot. Local-first, agent-driven, human-in-the-loop.**
 
 [![Hackathon 0](https://img.shields.io/badge/Hackathon-0%20Platinum-blue)](https://forms.gle/JR9T1SJq5rmQyGkGA)
-[![Tier](https://img.shields.io/badge/Tier-💎%20Platinum-success)](./docs/HACKATHON_VALIDATION_REPORT.md)
+[![Tier](https://img.shields.io/badge/Tier-💎%20Platinum-success)](./README.md)
 [![Python](https://img.shields.io/badge/Python-3.13+-blue)](https://www.python.org/)
 [![License](https://img.shields.io/badge/License-MIT-green)](LICENSE)
-[![Status](https://img.shields.io/badge/Status-Production%20Ready-brightgreen)](./README.md)
+[![Status](https://img.shields.io/badge/Status-Code%20Complete-brightgreen)](./README.md)
 
 **Hackathon 0**: Building Autonomous FTEs (Full-Time Equivalent) in 2026
 

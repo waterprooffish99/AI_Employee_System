@@ -1,446 +1,404 @@
 # Vault Sync Guide - Platinum Tier
 
-## Overview
+**Bidirectional Git-based sync between Cloud and Local agents**
 
-This guide covers vault synchronization between cloud and local environments.
+---
 
-## Sync Methods
+## Architecture
 
-### Method 1: Git Sync (Recommended)
+```
+┌─────────────────────┐                    ┌─────────────────────┐
+│   CLOUD AGENT       │                    │   LOCAL AGENT       │
+│   (Oracle VM)       │                    │   (Your Laptop)     │
+│                     │                    │                     │
+│  /Updates/ ─┐       │                    │       ┌── /Updates/ │
+│  /Signals/ ─┼───────┼── Git Push/Pull ───┼───────┼── /Signals/ │
+│  /Plans/ ───┘       │      (5 min)       │       └── /Plans/  │
+│                     │                    │                     │
+│  In_Progress/cloud/ │                    │ │ In_Progress/local/│
+│                     │                    │                     │
+└─────────────────────┘                    └─────────────────────┘
+              │                                        │
+              └────────────┐              ┌────────────┘
+                           │              │
+                           ▼              │
+                    ┌─────────────────────┐
+                    │  Private Git Repo   │
+                    │  (GitHub/GitLab)    │
+                    │  - Markdown only    │
+                    │  - No secrets       │
+                    └─────────────────────┘
+```
 
-**Pros**:
-- Version history
-- Conflict resolution
-- Audit trail
-- Works with any Git provider
+---
 
-**Cons**:
-- Periodic sync (not real-time)
-- Manual conflict resolution sometimes needed
+## Security Model
 
-### Method 2: Syncthing (Alternative)
+**What IS Synced** (Markdown/State files):
+- ✅ `/Updates/` - Draft emails, social posts, Odoo actions
+- ✅ `/Signals/` - Inter-agent notifications
+- ✅ `/Plans/` - Execution plans
+- ✅ `/In_Progress/<agent>/` - Claimed tasks
+- ✅ `Dashboard.md` - Merged (local preferred)
+- ✅ `Company_Handbook.md` - Shared rules
+- ✅ `Business_Goals.md` - Shared objectives
 
-**Pros**:
-- Real-time sync
-- Automatic conflict detection
-- No central server needed
+**What is NEVER Synced** (Secrets):
+- ❌ `.env` - Environment variables
+- ❌ `*.session` - WhatsApp/email sessions
+- ❌ `credentials.json` - OAuth credentials
+- ❌ `*.token` - Access/refresh tokens
+- ❌ `Audit_Logs/` - Contains sensitive data
+- ❌ `CEO_Briefings/` - Business sensitive
+- ❌ `Logs/` - May contain sensitive info
 
-**Cons**:
-- Both sides must be online
-- Less audit history
+**Enforced by**: `.gitignore` (vault root)
 
-## Git Sync Setup
+---
+
+## Setup Guide (15 minutes)
 
 ### Step 1: Create Private Git Repository
 
-1. Go to GitHub/GitLab/Bitbucket
-2. Create **private** repository: `ai-employee-vault`
-3. Do NOT initialize with README
-4. Copy SSH clone URL
-
-### Step 2: Generate SSH Key for Sync
-
 ```bash
-# Generate dedicated SSH key for vault sync
-ssh-keygen -t ed25519 -C "ai-employee-sync" -f ~/.ssh/id_ed25519_vault
-
-# Copy public key
-cat ~/.ssh/id_ed25519_vault.pub
-
-# Add to GitHub/GitLab:
-# GitHub: Settings → SSH and GPG keys → New SSH key
-# GitLab: Settings → SSH Keys
+# GitHub (recommended)
+# 1. Go to https://github.com/new
+# 2. Repository name: ai-employee-vault
+# 3. Visibility: Private
+# 4. Do NOT initialize with README
+# 5. Click "Create repository"
 ```
 
-### Step 3: Initialize Vault Repository
+### Step 2: Generate SSH Key (Recommended over HTTPS)
 
-On **local machine**:
+```bash
+# Generate key
+ssh-keygen -t ed25519 -C "vault-sync" -f ~/.ssh/vault_sync
+
+# Copy public key
+cat ~/.ssh/vault_sync.pub
+
+# Add to GitHub:
+# Settings → SSH and GPG keys → New SSH Key
+# Paste the key, name it "Vault Sync"
+```
+
+### Step 3: Initialize Vault Git Repository
+
 ```bash
 cd AI_Employee_Vault
 
 # Initialize git
 git init
+git checkout -b main
 
-# Add remote
-git remote add origin git@github.com:your-username/ai-employee-vault.git
+# Configure git
+git config user.email "ai-employee@localhost"
+git config user.name "AI Employee Sync"
 
-# Create .gitignore (CRITICAL - excludes secrets)
-cat > .gitignore << 'EOF'
-# Environment files (contain secrets)
-.env
-.env.*
-.env.local
-.env.*.local
+# Add remote (replace with your repo URL)
+git remote add origin git@github.com:YOUR_USERNAME/ai-employee-vault.git
 
-# Token files
-*.token
-*.tokens
-*.access_token
-*.refresh_token
-
-# Key files
-*.key
-*.pem
-*.crt
-*.p12
-*.pfx
-
-# Credential directories
-sessions/
-credentials/
-oauth/
-auth/
-
-# Secret files
-*.secret
-*.secrets
-*.password
-*.passwd
-
-# IDE files
-.vscode/
-.idea/
-*.swp
-*.swo
-
-# OS files
-.DS_Store
-Thumbs.db
-
-# Logs (contain sensitive data)
-../AI_Employee_Vault/Audit_Logs/
-../AI_Employee_Vault/CEO_Briefings/
-EOF
+# Verify .gitignore exists
+cat .gitignore | head -20
 
 # Initial commit
-git add .
-git commit -m "Initial vault structure (no secrets)"
+git add -A
+git commit -m "Initial vault state"
 
 # Push to remote
-git branch -M main
 git push -u origin main
 ```
 
-### Step 4: Configure Cloud for Sync
+### Step 4: Configure Environment
 
-On **cloud VM**:
 ```bash
-cd ~/ai-employee-system/AI_Employee_Vault
+# Edit .env on BOTH cloud and local
+nano .env
 
-# Initialize git
-git init
-
-# Add remote
-git remote add origin git@github.com:your-username/ai-employee-vault.git
-
-# Configure SSH for Git
-cat >> ~/.ssh/config << 'EOF'
-Host github.com
-  IdentityFile ~/.ssh/id_ed25519_vault
-  IdentitiesOnly yes
-EOF
-
-chmod 600 ~/.ssh/config
-
-# Pull vault structure
-git pull origin main
+# Add these lines:
+VAULT_GIT_REPO_URL=git@github.com:YOUR_USERNAME/ai-employee-vault.git
+VAULT_GIT_BRANCH=main
+VAULT_SYNC_INTERVAL=300  # 5 minutes
 ```
 
-### Step 5: Create Sync Script
+### Step 5: Set Up Cron Jobs
 
-Create `scripts/sync_vault.sh`:
+#### Cloud VM (every 5 minutes):
+
 ```bash
-#!/bin/bash
+# Edit crontab
+crontab -e
 
-# Vault sync script
-# Run this on both cloud and local
-
-VAULT_DIR=~/ai-employee-system/AI_Employee_Vault
-cd "$VAULT_DIR" || exit 1
-
-echo "Syncing vault at $(date)"
-
-# Fetch latest
-git fetch origin
-
-# Check for changes
-LOCAL_CHANGES=$(git status --porcelain)
-REMOTE_CHANGES=$(git rev-list HEAD..origin/main --count)
-
-if [ -n "$LOCAL_CHANGES" ]; then
-    echo "Local changes detected:"
-    echo "$LOCAL_CHANGES"
-    
-    # Commit local changes
-    git add .
-    git commit -m "Auto-commit: $(date '+%Y-%m-%d %H:%M:%S')"
-fi
-
-if [ "$REMOTE_CHANGES" -gt 0 ]; then
-    echo "Remote changes detected: $REMOTE_CHANGES commits"
-    
-    # Pull with strategy to prefer remote for markdown
-    git pull --strategy-option=theirs
-fi
-
-# Push local changes
-git push origin main
-
-echo "Sync completed at $(date)"
+# Add line:
+*/5 * * * * cd /home/ubuntu/AI_Employee_System && bash scripts/cloud_vault_sync.sh
 ```
 
-Make executable:
-```bash
-chmod +x scripts/sync_vault.sh
-```
+#### Local Machine (every 5 minutes):
 
-### Step 6: Schedule Sync (Cron)
-
-On **cloud VM**:
+**Linux/Mac**:
 ```bash
 crontab -e
+
+# Add line:
+*/5 * * * * cd /path/to/AI_Employee_System && bash scripts/local_vault_sync.sh
 ```
 
-Add line (sync every 5 minutes):
-```bash
-*/5 * * * * /home/ubuntu/ai-employee-system/scripts/sync_vault.sh >> /home/ubuntu/logs/sync.log 2>&1
+**Windows (Task Scheduler)**:
+```powershell
+# Create scheduled task
+$action = New-ScheduledTaskAction -Execute "python" `
+  -Argument "-m src.utils.vault_sync_orchestrator --mode local" `
+  -WorkingDirectory "C:\path\to\AI_Employee_System"
+
+$trigger = New-ScheduledTaskTrigger -Once -At (Get-Date) `
+  -RepetitionInterval (New-TimeSpan -Minutes 5)
+
+Register-ScheduledTask -TaskName "VaultSync" `
+  -Action $action -Trigger $trigger -User "YOUR_USER"
 ```
 
-On **local machine** (Mac/Linux):
-```bash
-crontab -e
-```
+---
 
-Add same line with appropriate path.
+## Claim-by-Move Rule
 
-## Syncthing Setup (Alternative)
+**Problem**: Two agents might process the same task simultaneously.
 
-### Step 1: Install Syncthing
+**Solution**: Claim-by-move prevents double-processing.
 
-**Cloud VM**:
-```bash
-# Install Syncthing
-curl -s https://syncthing.net/install.sh | sudo bash
+### How It Works
 
-# Start Syncthing
-syncthing -no-browser -gui-address="127.0.0.1:8384"
-
-# Create systemd service (optional)
-sudo systemctl enable syncthing@ubuntu
-sudo systemctl start syncthing@ubuntu
-```
-
-**Local Machine**:
-- Download from https://syncthing.net/downloads/
-- Install and run
-
-### Step 2: Configure Syncthing
-
-1. Open Syncthing UI (local): http://localhost:8384
-2. Open Syncthing UI (cloud): SSH tunnel required
-   ```bash
-   ssh -L 8384:localhost:8384 ubuntu@<CLOUD_IP>
+1. **Task arrives** in `/Needs_Action/email_123.md`
+2. **Cloud agent** sees task, wants to process
+3. **Cloud moves** file:
    ```
-   Then open http://localhost:8384
+   /Needs_Action/email_123.md
+   → /In_Progress/cloud/email_123.md
+   ```
+4. **Local agent** scans `/Needs_Action/`
+5. **Local sees** file NOT in `/Needs_Action/`
+6. **Local ignores** task (already claimed)
 
-3. Add devices:
-   - Exchange device IDs between cloud and local
-   - Accept pairing requests
+### Manual Claim
 
-4. Add folder:
-   - Folder path: `~/ai-employee-system/AI_Employee_Vault`
-   - Folder ID: `ai-employee-vault`
-   - Share with: other device
-
-### Step 3: Configure Ignore Patterns
-
-In Syncthing UI, edit folder → Ignore Patterns:
-```
-.env*
-*.token
-*.key
-*.pem
-*.crt
-sessions/
-credentials/
-*.secret
-Audit_Logs/
-CEO_Briefings/
-```
-
-## Security Rules
-
-### NEVER Sync These Files
-
-1. **Environment Files**:
-   - `.env`
-   - `.env.local`
-   - `.env.*.local`
-
-2. **Token Files**:
-   - `*.token`
-   - `*.access_token`
-   - `*.refresh_token`
-
-3. **Key Files**:
-   - `*.key`
-   - `*.pem`
-   - `*.crt`
-   - `*.p12`
-
-4. **Credential Directories**:
-   - `sessions/`
-   - `credentials/`
-   - `oauth/`
-   - `auth/`
-
-5. **Secret Files**:
-   - `*.secret`
-   - `*.password`
-
-### Verify .gitignore
-
-Before any commit:
 ```bash
-cd AI_Employee_Vault
-git status
-git add .
-git status  # Review what will be committed
+# Cloud agent claims task
+python -m src.utils.vault_sync_orchestrator \
+  --mode cloud \
+  --vault-path ./AI_Employee_Vault \
+  --claim ./AI_Employee_Vault/Needs_Action/email_123.md
 ```
 
-**If you see any secrets**:
-1. DO NOT COMMIT
-2. Update `.gitignore`
-3. Remove secrets from staging: `git reset`
-4. Delete secrets if accidentally committed
+### Release Task (if agent can't complete)
+
+```bash
+# Python script
+from src.utils.vault_sync_orchestrator import VaultSyncOrchestrator
+
+orchestrator = VaultSyncOrchestrator(
+    vault_path='./AI_Employee_Vault',
+    agent_name='cloud'
+)
+
+task_file = Path('./AI_Employee_Vault/In_Progress/cloud/email_123.md')
+orchestrator.release_task(task_file, reason="Requires local approval")
+```
+
+---
 
 ## Conflict Resolution
 
-### Git Conflicts
+### Dashboard.md Conflicts
 
-When conflicts occur:
+**Scenario**: Both cloud and local update Dashboard.md simultaneously.
+
+**Resolution Strategy**: Local wins (preserves user's manual edits).
 
 ```bash
-cd AI_Employee_Vault
-
-# See conflicts
-git status
-
-# View conflict
-cat path/to/conflicted_file.md
-
-# Resolve manually
-# Edit file, remove conflict markers
-
-# Or accept remote version
-git checkout --theirs path/to/file
-
-# Or accept local version
-git checkout --ours path/to/file
-
-# Complete merge
-git add path/to/file
-git commit
-git push
+# If conflict detected:
+# 1. Git marks conflict in Dashboard.md
+# 2. Local agent keeps local version
+# 3. Cloud agent accepts local version
+# 4. No manual intervention needed
 ```
 
-### Syncthing Conflicts
+### Plan.md Conflicts
 
-Syncthing creates conflict copies:
-- `filename.conflict-20260107-100000-ABC123.md`
+**Strategy**: Merge both plans (additive).
 
-Review and merge manually, then delete conflict copy.
+```bash
+# Orchestrator automatically merges:
+# - Cloud adds sections to Plan.md
+# - Local adds sections to same Plan.md
+# - Git auto-merges if no line conflicts
+```
+
+---
 
 ## Testing Sync
 
 ### Test 1: Cloud → Local
 
-1. On cloud: Create test file
-   ```bash
-   echo "# Test from Cloud" > AI_Employee_Vault/Test_Cloud.md
-   ```
+```bash
+# 1. On cloud VM: Create test file
+echo "Test from cloud" > AI_Employee_Vault/Updates/cloud_test.md
 
-2. Run sync on cloud:
-   ```bash
-   ./scripts/sync_vault.sh
-   ```
+# 2. Run cloud sync
+bash scripts/cloud_vault_sync.sh
 
-3. Run sync on local:
-   ```bash
-   ./scripts/sync_vault.sh
-   ```
+# 3. Wait 5 minutes (or run immediately on local)
+bash scripts/local_vault_sync.sh
 
-4. Verify file exists on local:
-   ```bash
-   cat AI_Employee_Vault/Test_Cloud.md
-   ```
+# 4. Verify file exists on local
+cat AI_Employee_Vault/Updates/cloud_test.md
+```
 
 ### Test 2: Local → Cloud
 
-1. On local: Create test file
-   ```bash
-   echo "# Test from Local" > AI_Employee_Vault/Test_Local.md
-   ```
-
-2. Run sync on local
-
-3. Run sync on cloud
-
-4. Verify file exists on cloud
-
-### Test 3: Secret Exclusion
-
-1. Create test secret:
-   ```bash
-   echo "SECRET_KEY=12345" > AI_Employee_Vault/.env.test
-   ```
-
-2. Run sync:
-   ```bash
-   ./scripts/sync_vault.sh
-   ```
-
-3. Verify secret was NOT synced:
-   - Check git status: should not show `.env.test`
-   - Check remote: should not contain file
-
-## Troubleshooting
-
-### Sync Fails with Permission Error
-
 ```bash
-# Fix SSH key permissions
-chmod 600 ~/.ssh/id_ed25519_vault
-chmod 600 ~/.ssh/config
+# 1. On local: Create test file
+echo "Test from local" > AI_Employee_Vault/Signals/local_test.md
+
+# 2. Run local sync
+bash scripts/local_vault_sync.sh
+
+# 3. On cloud: Pull changes
+bash scripts/cloud_vault_sync.sh
+
+# 4. Verify file exists on cloud
+cat AI_Employee_Vault/Signals/local_test.md
 ```
 
-### Git Conflict on Every Sync
+### Test 3: Claim-by-Move
 
 ```bash
-# Reset to remote
-git fetch origin
-git reset --hard origin/main
+# 1. Create test task
+echo "Test task" > AI_Employee_Vault/Needs_Action/test_claim.md
+
+# 2. Cloud claims task
+python -m src.utils.vault_sync_orchestrator \
+  --mode cloud \
+  --vault-path ./AI_Employee_Vault \
+  --claim ./AI_Employee_Vault/Needs_Action/test_claim.md
+
+# 3. Verify moved
+ls AI_Employee_Vault/In_Progress/cloud/test_claim.md
+# Should exist
+
+ls AI_Employee_Vault/Needs_Action/test_claim.md
+# Should NOT exist
 ```
-
-### Syncthing Not Connecting
-
-1. Check firewall (port 22000)
-2. Verify device IDs exchanged
-3. Check both devices online
-
-### Large Sync Delays
-
-- Git: Check network connection
-- Syncthing: Check bandwidth limits in settings
-
-## Best Practices
-
-1. **Sync Before Important Operations**: Always sync before starting work
-2. **Commit Often**: Small, frequent commits reduce conflicts
-3. **Review Before Push**: Always review what will be synced
-4. **Test Regularly**: Run sync tests weekly
-5. **Backup**: Keep separate backups in addition to sync
 
 ---
 
-*Guide Version: 1.0.0 | Platinum Tier*
+## Troubleshooting
+
+### Issue: Git Push Fails (Permission Denied)
+
+```bash
+# Check SSH key
+ssh -T git@github.com
+
+# If fails, re-add SSH key:
+# 1. Copy ~/.ssh/vault_sync.pub
+# 2. Add to GitHub SSH keys
+# 3. Test again
+```
+
+### Issue: Merge Conflicts in Dashboard.md
+
+```bash
+# Check conflict markers
+grep -n "<<<<<<" AI_Employee_Vault/Dashboard.md
+
+# If conflicts exist:
+# 1. Edit Dashboard.md manually
+# 2. Remove conflict markers
+# 3. Keep desired content
+# 4. git add Dashboard.md
+# 5. git commit
+# 6. git push
+```
+
+### Issue: Sync Not Running
+
+```bash
+# Check cron status
+systemctl status cron  # Linux
+crontab -l  # List cron jobs
+
+# Check logs
+tail -f AI_Employee_Vault/Logs/vault_sync_*.log
+
+# Manual test
+bash scripts/cloud_vault_sync.sh
+# or
+bash scripts/local_vault_sync.sh
+```
+
+### Issue: Large Files Blocking Sync
+
+```bash
+# Find large files
+find AI_Employee_Vault -type f -size +1M
+
+# Add to .gitignore if should not sync
+echo "LargeFile.pdf" >> AI_Employee_Vault/.gitignore
+
+# Remove from git cache
+git rm --cached AI_Employee_Vault/LargeFile.pdf
+git commit -m "Remove large file from sync"
+```
+
+---
+
+## Performance Optimization
+
+### Reduce Sync Frequency
+
+```bash
+# Edit .env
+VAULT_SYNC_INTERVAL=600  # 10 minutes instead of 5
+```
+
+### Sync Only Critical Directories
+
+```python
+# Edit vault_sync_orchestrator.py
+self.sync_dirs = ['Updates/', 'Signals/']  # Exclude Plans/
+```
+
+### Compress Git History
+
+```bash
+cd AI_Employee_Vault
+
+# Garbage collect
+git gc --aggressive
+
+# Prune old objects
+git prune
+
+# Verify size
+du -sh .git
+```
+
+---
+
+## Acceptance Criteria Checklist
+
+- [ ] Private GitHub repo created
+- [ ] SSH key generated and added to GitHub
+- [ ] Vault initialized as git repo
+- [ ] `.gitignore` verified (secrets excluded)
+- [ ] Initial commit pushed
+- [ ] Cloud cron job configured
+- [ ] Local cron job configured
+- [ ] Cloud → Local sync tested
+- [ ] Local → Cloud sync tested
+- [ ] Claim-by-move tested
+- [ ] No secrets synced (verified)
+
+---
+
+**Next Step**: Proceed to Phase 1.6 - Health Monitoring

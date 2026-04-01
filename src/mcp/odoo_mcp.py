@@ -40,7 +40,7 @@ class OdooClient:
     ):
         """
         Initialize Odoo client.
-        
+
         Args:
             url: Odoo server URL
             db: Database name
@@ -51,17 +51,19 @@ class OdooClient:
         self.db = db or os.getenv("ODOO_DB", "odoo_db")
         self.username = username or os.getenv("ODOO_USERNAME", "admin")
         self.api_key = api_key or os.getenv("ODOO_API_KEY", "")
-        
+
         self.uid = None
         self.error_handler = ErrorHandler()
-        
-        # Authenticate
+        self.connection_ok = False
+        self.last_error = None
+
+        # Authenticate (gracefully handle failure)
         self._authenticate()
     
     def _authenticate(self):
-        """Authenticate with Odoo."""
+        """Authenticate with Odoo (graceful failure)."""
         endpoint = f"{self.url}/jsonrpc"
-        
+
         payload = {
             "jsonrpc": "2.0",
             "method": "call",
@@ -72,26 +74,31 @@ class OdooClient:
             },
             "id": 1
         }
-        
+
         try:
             response = requests.post(endpoint, json=payload, timeout=30)
             response.raise_for_status()
             result = response.json()
-            
+
             if "result" in result:
                 self.uid = result["result"]
+                self.connection_ok = True
                 logger.info(f"Authenticated with Odoo as user {self.uid}")
             else:
                 raise Exception(f"Authentication failed: {result}")
         except Exception as e:
-            logger.error(f"Odoo authentication failed: {e}")
+            self.last_error = str(e)
+            logger.warning(f"Odoo authentication failed: {e}")
+            logger.warning("Odoo MCP will operate in degraded mode - operations will fail gracefully")
             audit_logger.log_error(
                 action_type="odoo_authenticate",
                 actor="odoo_mcp",
                 error=str(e),
                 target=self.url,
             )
-            raise
+            # Don't raise - allow OdooClient to be created but mark as not connected
+            self.uid = None
+            self.connection_ok = False
     
     def _jsonrpc_call(
         self,
@@ -102,18 +109,25 @@ class OdooClient:
     ) -> Any:
         """
         Make a JSON-RPC call to Odoo.
-        
+
+        GRACEFUL DEGRADATION: If Odoo is not connected, returns None instead of raising.
+
         Args:
             model: Odoo model name
             method: Method to call
             args: Positional arguments
             kwargs: Keyword arguments
-            
+
         Returns:
-            Method result
+            Method result, or None if Odoo unavailable
         """
+        # Check connection status first
+        if not self.connection_ok or self.uid is None:
+            logger.warning(f"Odoo not connected (authentication failed). Skipping {model}.{method}")
+            return None
+
         endpoint = f"{self.url}/jsonrpc"
-        
+
         payload = {
             "jsonrpc": "2.0",
             "method": "call",
@@ -124,29 +138,34 @@ class OdooClient:
             },
             "id": 2
         }
-        
+
         if args:
             payload["params"]["args"].append(args)
         else:
             payload["params"]["args"].append([])
-        
+
         if kwargs:
             payload["params"]["kwargs"] = kwargs
         else:
             payload["params"]["kwargs"] = {}
-        
+
         try:
             response = requests.post(endpoint, json=payload, timeout=30)
             response.raise_for_status()
             result = response.json()
-            
+
             if "result" in result:
                 return result["result"]
             else:
-                raise Exception(f"Odoo error: {result}")
+                logger.error(f"Odoo error: {result}")
+                return None
+        except requests.exceptions.ConnectionError as e:
+            logger.error(f"Odoo connection failed (is Odoo running?): {e}")
+            self.connection_ok = False
+            return None
         except Exception as e:
             logger.error(f"Odoo JSON-RPC call failed: {e}")
-            raise
+            return None
 
     @retryable(max_retries=3)
     def search_read(
@@ -158,77 +177,119 @@ class OdooClient:
     ) -> list[dict]:
         """
         Search and read records from Odoo.
-        
+
+        GRACEFUL DEGRADATION: Returns empty list if Odoo unavailable.
+
         Args:
             model: Model name
             domain: Search domain
             fields: Fields to return
             limit: Maximum records
-            
+
         Returns:
-            List of records
+            List of records (empty if unavailable)
         """
-        return self._jsonrpc_call(
+        result = self._jsonrpc_call(
             model=model,
             method="search_read",
             args=[domain or [], fields or []],
             kwargs={"limit": limit},
         )
+        if result is None:
+            return []  # Graceful failure
+        return result
 
     @retryable(max_retries=3)
     def create(self, model: str, values: dict) -> int:
         """
         Create a record in Odoo.
-        
+
+        GRACEFUL DEGRADATION: Returns 0 (falsy) if Odoo unavailable.
+
         Args:
             model: Model name
             values: Field values
-            
+
         Returns:
-            Record ID
+            Record ID, or 0 if failed
         """
-        return self._jsonrpc_call(
+        result = self._jsonrpc_call(
             model=model,
             method="create",
             args=[values],
         )
+        if result is None:
+            return 0  # Graceful failure - caller should check
+        return result
 
     @retryable(max_retries=3)
     def write(self, model: str, ids: list, values: dict) -> bool:
         """
         Update records in Odoo.
-        
+
+        GRACEFUL DEGRADATION: Returns False if Odoo unavailable.
+
         Args:
             model: Model name
             ids: Record IDs
             values: Field values
-            
+
         Returns:
-            True if successful
+            True if successful, False otherwise
         """
-        return self._jsonrpc_call(
+        result = self._jsonrpc_call(
             model=model,
             method="write",
             args=[ids, values],
         )
+        if result is None:
+            return False
+        return True
 
     @retryable(max_retries=3)
     def unlink(self, model: str, ids: list) -> bool:
         """
         Delete records from Odoo.
-        
+
+        GRACEFUL DEGRADATION: Returns False if Odoo unavailable.
+
         Args:
             model: Model name
             ids: Record IDs
-            
+
         Returns:
-            True if successful
+            True if successful, False otherwise
         """
-        return self._jsonrpc_call(
+        result = self._jsonrpc_call(
             model=model,
             method="unlink",
             args=[ids],
         )
+        if result is None:
+            return False
+        return True
+
+    def health_check(self) -> dict:
+        """
+        Check Odoo connection health.
+
+        Returns:
+            Dict with status: {'ok': bool, 'message': str, 'url': str, 'db': str}
+        """
+        if self.connection_ok and self.uid:
+            return {
+                "ok": True,
+                "message": f"Connected as user {self.uid}",
+                "url": self.url,
+                "db": self.db,
+            }
+        else:
+            return {
+                "ok": False,
+                "message": self.last_error or "Not authenticated",
+                "url": self.url,
+                "db": self.db,
+            }
 
 
 class OdooMCP:
@@ -561,7 +622,24 @@ class OdooMCP:
                 target=name,
             )
             return {"success": False, "error": str(e)}
-    
+
+    def health_check(self) -> dict:
+        """
+        Check Odoo connection health.
+
+        Returns:
+            Dict with status: {'ok': bool, 'message': str, 'url': str, 'db': str}
+        """
+        if self.client:
+            return self.client.health_check()
+        else:
+            return {
+                "ok": False,
+                "message": "Odoo MCP client not initialized",
+                "url": self.client.url if self.client else "unknown",
+                "db": self.client.db if self.client else "unknown",
+            }
+
     def get_partners(
         self,
         partner_type: str | None = None,

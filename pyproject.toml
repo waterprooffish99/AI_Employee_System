@@ -1,7 +1,7 @@
 [project]
 name = "ai-employee-system"
-version = "0.2.0"
-description = "A Personal AI Employee system implementing autonomous FTE capabilities - Gold Tier"
+version = "0.3.0"
+description = "A Personal AI Employee system implementing autonomous FTE capabilities - Platinum Tier"
 readme = "README.md"
 requires-python = ">=3.13"
 dependencies = [
@@ -12,25 +12,23 @@ dependencies = [
     "linkedin-api>=2.3.1",
     "playwright>=1.58.0",
     "watchdog>=4.0.0",
-    
     # Gold Tier: HTTP and API clients
     "requests>=2.32.0",
-    
     # Gold Tier: Social Media APIs
     "facebook-business>=19.0.0",
     "tweepy>=4.14.0",
-    
     # Gold Tier: Retry logic
     "retrying>=1.3.0",
-    
     # Gold Tier: Structured logging
     "structlog>=24.0.0",
-    
     # Gold Tier: OAuth for social media
     "requests-oauthlib>=1.3.1",
-    
     # Gold Tier: Image processing for Instagram
     "pillow>=10.0.0",
+    # Silver/Gold Tier: Twilio WhatsApp API
+    "twilio>=9.0.0",
+    # Silver Tier: Webhook server
+    "flask>=3.0.0",
 ]
 
 [project.optional-dependencies]

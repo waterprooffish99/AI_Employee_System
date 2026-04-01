@@ -14,19 +14,59 @@ from datetime import datetime
 from typing import List, Dict, Any
 
 from .base_watcher import BaseWatcher
+import json  # For loading client credentials JSON
 
 # Optional imports - will fail gracefully if not installed
-try:
-    from google.oauth2.credentials import Credentials
-    from google.oauth2 import client_config
-    from googleapiclient.discovery import build
-    from googleapiclient.errors import HttpError
-    from google.auth.transport.requests import Request
-    GOOGLE_AVAILABLE = True
-except ImportError:
-    GOOGLE_AVAILABLE = False
-    Credentials = None
-    build = None
+# Detailed import checking to identify exactly which module is missing
+GOOGLE_AVAILABLE = True
+GOOGLE_IMPORT_ERROR = None
+MISSING_MODULES = []
+
+# Check each required Google API module individually
+# Note: google.oauth2.client_config was removed in newer versions
+# We use standard json module instead for loading credentials
+_google_modules = [
+    ('google.oauth2.credentials', 'Credentials'),
+    ('googleapiclient.discovery', 'build'),
+    ('googleapiclient.errors', 'HttpError'),
+    ('google.auth.transport.requests', 'Request'),
+]
+
+for module_name, class_name in _google_modules:
+    try:
+        # Import class from module
+        module = __import__(module_name, fromlist=[class_name])
+        globals()[class_name] = getattr(module, class_name)
+    except ImportError as e:
+        GOOGLE_AVAILABLE = False
+        MISSING_MODULES.append(module_name)
+        GOOGLE_IMPORT_ERROR = str(e)
+        # Set placeholder to prevent NameError
+        globals()[class_name] = None
+        logger.warning(f'Failed to import {module_name}: {e}')
+
+# If any module failed, mark Google as unavailable
+if not GOOGLE_AVAILABLE:
+    Credentials = globals().get('Credentials')
+    build = globals().get('build')
+    HttpError = globals().get('HttpError')
+    Request = globals().get('Request')
+
+
+def load_client_credentials(filepath):
+    """
+    Load client credentials from JSON file.
+    
+    This replaces the deprecated google.oauth2.client_config.load_from_client_config_file()
+    
+    Args:
+        filepath: Path to credentials JSON file
+        
+    Returns:
+        dict: Client configuration data
+    """
+    with open(filepath) as f:
+        return json.load(f)
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -92,22 +132,35 @@ class GmailWatcher(BaseWatcher):
     def _authenticate(self) -> bool:
         """
         Authenticate with Gmail API.
-        
+
         Returns:
             True if authentication successful, False otherwise
         """
         if not GOOGLE_AVAILABLE:
-            logger.error('Google API libraries not installed. Run: pip install google-api-python-client google-auth-httplib2 google-auth-oauthlib')
+            logger.error('=' * 60)
+            logger.error('Google API libraries not installed or incomplete!')
+            logger.error('=' * 60)
+            if MISSING_MODULES:
+                logger.error(f'Missing modules: {", ".join(MISSING_MODULES)}')
+            if GOOGLE_IMPORT_ERROR:
+                logger.error(f'Import error details: {GOOGLE_IMPORT_ERROR}')
+            logger.error('')
+            logger.error('To fix this, run:')
+            logger.error('  pip install --upgrade google-api-python-client google-auth-httplib2 google-auth-oauthlib')
+            logger.error('')
+            logger.error('Then verify installation:')
+            logger.error('  python -c "from google.oauth2.credentials import Credentials; print(\'OK\')"')
+            logger.error('=' * 60)
             return False
         
         try:
             creds = None
-            
+
             # Load token if exists
             token_file = Path(self.token_path)
             if token_file.exists():
                 creds = Credentials.from_authorized_user_file(token_file, ['https://www.googleapis.com/auth/gmail.readonly'])
-            
+
             # If no valid credentials, try to get from credentials file
             if not creds or not creds.valid:
                 if creds and creds.expired and creds.refresh_token:
@@ -116,9 +169,10 @@ class GmailWatcher(BaseWatcher):
                     if not self.credentials_path or not Path(self.credentials_path).exists():
                         logger.error(f'Credentials file not found: {self.credentials_path}')
                         return False
-                    
+
+                    # Load client config from JSON file
                     with open(self.credentials_path) as f:
-                        client_config_data = client_config.load_from_client_config_file(f)
+                        client_config_data = json.load(f)
                     
                     # For now, log that manual auth is needed
                     logger.warning('Manual OAuth flow required. See documentation for setup.')
@@ -287,14 +341,54 @@ status: pending
 if __name__ == '__main__':
     import os
     import sys
+    import subprocess
+
+    print('=' * 60)
+    print('=== Gmail Watcher - Diagnostic Check ===')
+    print('=' * 60)
+    
+    # Show Python environment info
+    print(f'\nPython executable: {sys.executable}')
+    print(f'Python version: {sys.version}')
+    print(f'Virtual environment: {sys.prefix != sys.base_prefix}')
+    
+    # Check Google API libraries
+    print('\n--- Google API Libraries Check ---')
+    if GOOGLE_AVAILABLE:
+        print('✓ All Google API libraries are installed')
+    else:
+        print('✗ Google API libraries are MISSING or INCOMPLETE')
+        print(f'  Missing modules: {MISSING_MODULES}')
+        print(f'  Error details: {GOOGLE_IMPORT_ERROR}')
+        print()
+        print('  Recommended fix:')
+        print(f'  {sys.executable} -m pip install --upgrade google-api-python-client google-auth-httplib2 google-auth-oauthlib')
+    
+    # Try individual imports for debugging
+    print('\n--- Individual Module Tests ---')
+    test_imports = [
+        'google.oauth2.credentials',
+        'googleapiclient.discovery',
+        'googleapiclient.errors',
+        'google.auth.transport.requests',
+    ]
+    
+    for module in test_imports:
+        try:
+            __import__(module)
+            print(f'✓ {module}')
+        except ImportError as e:
+            print(f'✗ {module} - {e}')
+    
+    print()
+    print('=' * 60)
     
     # Get vault path from environment or use default
     vault_path = os.getenv('VAULT_PATH', '/mnt/c/Users/WaterProof Fish/Documents/AI_Employee_System/AI_Employee_Vault')
-    
+
     # Get credentials path from environment
     credentials_path = os.getenv('GMAIL_CREDENTIALS')
-    
-    print('=== Gmail Watcher Test ===')
+
     print(f'Vault Path: {vault_path}')
     print(f'Credentials: {credentials_path or "Not configured"}')
     
